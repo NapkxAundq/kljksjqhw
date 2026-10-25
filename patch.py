@@ -134,23 +134,8 @@ def patch_dll(dll: bytes) -> bytes:
     elif hotkey != bytes.fromhex("b9 78 00 00 00"):
         raise ValueError(f"Unexpected hotkey bytes: {hotkey.hex(' ')}")
 
-    # Give the existing buffer hooks an earlier priority than VeryEarly hooks.
-    priority = bytes.fromhex("c0 bd f0 ff")
-    earlier = bytes.fromhex("bf bd f0 ff")
-    text_end = 0x400 + 0x62B8C5
-    matches = []
-    pos = 0x400
-    while True:
-        pos = data.find(priority, pos, text_end)
-        if pos < 0:
-            break
-        matches.append(pos)
-        pos += 4
-    if len(matches) == 26:
-        for pos in matches:
-            data[pos:pos + 4] = earlier
-    elif matches or data.count(earlier) < 26:
-        raise ValueError(f"Unexpected hook-priority pattern count: old={len(matches)}, new={data.count(earlier)}")
+    # Preserve original hook priorities. Global priority changes can interfere with
+    # input delivery by other hooks/mods and are not required to configure tick stages.
 
     # Replace the original state switch with a trampoline in unused INT3 padding.
     entry_prefix = bytes.fromhex("8b 4b 18")
