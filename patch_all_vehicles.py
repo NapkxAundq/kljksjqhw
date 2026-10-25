@@ -143,6 +143,62 @@ def patch_dll(dll: bytes) -> bytes:
     data[LOG_FORMAT_SITE_OFF:LOG_FORMAT_SITE_OFF + 7] = (
         bytes.fromhex("48 8d 0d") + rel32(target_va, site_va + 7)
     )
+    # Refresh stage messages in their existing slots. Do not move code or pointers.
+    stage_slots = [
+        (0x5AEDF0, 0x5AEE3E, 2, "0.5"),
+        (0x5AEE3E, 0x5AEE8C, 4, "1.0"),
+        (0x5AEE8C, 0x5AEEDA, 6, "1.5"),
+        (0x5AEEDA, 0x5AEF28, 8, "2.0"),
+        (0x5AEF28, 0x5AEF78, 10, "2.5"),
+        (0x5AEF78, 0x5AEFC8, 12, "3.0"),
+        (0x5AEFC8, 0x5AF018, 14, "3.5"),
+        (0x5AF018, 0x5AF068, 16, "4.0"),
+        (0x5AF068, 0x5AF0B8, 18, "4.5"),
+        (0x5AF0B8, 0x5AF109, 20, "5.0"),
+        (0x5AF109, 0x5AF15A, 22, "5.5"),
+        (0x5AF15A, OFF_MESSAGE_OFF, 24, "6.0"),
+    ]
+    for slot_start, slot_end, ticks, frames in stage_slots:
+        message = (
+            f"[InputBuffer] F9 Cycle -> STAGE {ticks // 2}: {ticks} Ticks "
+            f"({frames}f @ 60fps)\n"
+        ).encode("ascii")
+        capacity = slot_end - slot_start
+        if len(message) + 1 > capacity:
+            raise ValueError(f"Stage message does not fit at 0x{slot_start:x}")
+        data[slot_start:slot_end] = (
+            message + b"\x00" + b"\xCC" * (capacity - len(message) - 1)
+        )
+
+    off_message = b"[InputBuffer] F9 Cycle -> STAGE 13: OFF (100%% Raw Input)\n"
+    off_capacity = ACTIVE_HELPER_OFF - OFF_MESSAGE_OFF
+    if len(off_message) + 1 > off_capacity:
+        raise ValueError("OFF status message exceeds its reserved slot")
+    data[OFF_MESSAGE_OFF:ACTIVE_HELPER_OFF] = (
+        off_message + b"\x00" + b"\xCC" * (off_capacity - len(off_message) - 1)
+    )
+
+    # Refresh legacy status strings, including the old stage-five 16-tick label.
+    legacy_status = [
+        (0x631DA0, "[InputBuffer] F9 Cycle -> STAGE 1: 2 Ticks (0.5f @ 60fps)\n"),
+        (0x631E00, "[InputBuffer] F9 Cycle -> STAGE 2: 4 Ticks (1.0f @ 60fps)\n"),
+        (0x631E60, "[InputBuffer] F9 Cycle -> STAGE 3: 6 Ticks (1.5f @ 60fps)\n"),
+        (0x631EC0, "[InputBuffer] F9 Cycle -> STAGE 4: 8 Ticks (2.0f @ 60fps)\n"),
+        (0x631F28, "[InputBuffer] F9 Cycle -> STAGE 5: 10 Ticks (2.5f @ 60fps)\n"),
+    ]
+    for slot, text in legacy_status:
+        data[slot:slot + len(text.encode("ascii")) + 1] = text.encode("ascii") + b"\x00"
+
+    startup = b" [InputBuffer] Starting Mode: STAGE 1 (2 Ticks for all vehicles)\n"
+    startup_slot = 0x632140 - 0x6320F0
+    if len(startup) + 1 > startup_slot:
+        raise ValueError("Startup status message exceeds its reserved slot")
+    data[0x6320F0:0x632140] = (
+        startup + b"\x00" * (startup_slot - len(startup))
+    )
+    cycle_prompt = b" [InputBuffer] Press F9: +2 ticks each stage (2-24), then OFF\n\x00"
+    data[0x632140:0x632140 + len(cycle_prompt)] = cycle_prompt
+
     return bytes(data)
 
 
